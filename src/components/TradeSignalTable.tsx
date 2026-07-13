@@ -8,7 +8,7 @@ import {
     TableCell,
 } from './ui/table'
 import useTradeSignals from '@/hooks/useTradeSignals'
-import { ArrowUp, ArrowDown, Minus, ArrowsUpDown } from 'lucide-react'
+import { ArrowUp, ArrowDown, Minus, ArrowUpDown } from 'lucide-react'
 
 type SortKey = 'strength' | 'confidence' | 'symbol' | 'direction'
 
@@ -50,7 +50,7 @@ export function TradeSignalTable() {
                     <button className={`px-2 py-1 rounded text-sm ${sortKey === 'direction' ? 'bg-zinc-800' : 'bg-zinc-700'}`} onClick={() => toggleSort('direction')}>Signal</button>
                 </div>
                 <div className="flex items-center gap-2 text-sm text-zinc-400">
-                    <ArrowsUpDown size={14} />
+                    <ArrowUpDown size={14} />
                     <span>{asc ? 'Ascending' : 'Descending'}</span>
                 </div>
             </div>
