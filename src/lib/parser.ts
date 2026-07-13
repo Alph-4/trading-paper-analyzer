@@ -1,4 +1,5 @@
 import Papa from 'papaparse'
+import { getHeaderValue } from './csvHeaders'
 import type { RawRow, ParsedEvent, EventType, Trade, TradeClose } from './types'
 
 // ── Regex patterns ─────────────────────────────────────────────────────────
@@ -51,12 +52,12 @@ export function parseRawRows(csvText: string): RawRow[] {
 
   return result.data
     .map((row) => ({
-      heure: row['Heure'] ?? '',
-      balanceAvant: parseFloat(row['Balance avant'] ?? '0'),
-      balanceApres: parseFloat(row['Balance après'] ?? '0'),
-      pnl: parseFloat(row['Pertes et profits réalisés (valeur)'] ?? '0'),
-      devise: row['Pertes et profits réalisés (devise)'] ?? 'USD',
-      action: (row['Action'] ?? '').trim(),
+      heure: getHeaderValue(row, ['Heure', 'Time']) || '',
+      balanceAvant: parseFloat(getHeaderValue(row, ['Balance avant', 'Balance before']) || '0'),
+      balanceApres: parseFloat(getHeaderValue(row, ['Balance après', 'Balance after']) || '0'),
+      pnl: parseFloat(getHeaderValue(row, ['Pertes et profits réalisés (valeur)', 'Realized PnL (value)']) || '0'),
+      devise: getHeaderValue(row, ['Pertes et profits réalisés (devise)', 'Realized PnL (currency)']) || 'USD',
+      action: (getHeaderValue(row, ['Action']) || '').trim(),
     }))
     .filter((r) => r.heure !== '' && !isNaN(r.pnl))
 }
