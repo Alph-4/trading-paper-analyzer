@@ -167,3 +167,25 @@ export interface AnalyticsResult {
   streakSeries: StreakPoint[]
   rollingMetrics: RollingPoint[]
 }
+
+// ── Convictions / Signals ──────────────────────────────────────────────────
+
+export type ConvictionStance = 'long' | 'short' | 'neutral'
+
+export interface CurrencyConviction {
+  currency: string
+  stance: ConvictionStance
+  score: number // 0..5 integer
+  updatedAt: number
+}
+
+export interface TradeSignal {
+  symbol: string
+  base: string
+  quote: string
+  direction: 'long' | 'short' | 'neutral'
+  strength: number // 0..5
+  confidence: number // 0..1 (how aligned base/quote are)
+  baseConviction: CurrencyConviction
+  quoteConviction: CurrencyConviction
+}

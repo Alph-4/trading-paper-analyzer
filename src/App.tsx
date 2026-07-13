@@ -12,6 +12,7 @@ import PairsPage from '@/pages/PairsPage'
 import SessionsPage from '@/pages/SessionsPage'
 import CommissionsPage from '@/pages/CommissionsPage'
 import DrawdownPage from '@/pages/DrawdownPage'
+import ConvictionsPage from '@/pages/ConvictionsPage'
 
 function RequireData({ children }: { children: React.ReactNode }) {
   const isLoaded = useTradeStore((s) => s.isLoaded)
@@ -63,6 +64,7 @@ function Layout() {
                 </RequireData>
               }
             />
+            <Route path="/convictions" element={<ConvictionsPage />} />
             <Route
               path="/sessions"
               element={

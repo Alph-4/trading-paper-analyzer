@@ -9,6 +9,7 @@ import {
   Clock,
   TrendingDown,
   DollarSign,
+  Compass,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react'
@@ -16,14 +17,15 @@ import { cn } from '@/lib/utils'
 import { useTradeStore } from '@/store/useTradeStore'
 
 const NAV_ITEMS = [
-  { to: '/upload', icon: Upload, label: 'Import CSV' },
-  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/equity', icon: TrendingUp, label: 'Equity Curve' },
-  { to: '/trades', icon: List, label: 'Trades' },
-  { to: '/pairs', icon: BarChart2, label: 'Par Paire' },
-  { to: '/sessions', icon: Clock, label: 'Sessions & Temps' },
-  { to: '/commissions', icon: DollarSign, label: 'Commissions' },
-  { to: '/drawdown', icon: TrendingDown, label: 'Drawdown' },
+  { to: '/upload', icon: Upload, label: 'Import CSV', requiresData: false },
+  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', requiresData: true },
+  { to: '/equity', icon: TrendingUp, label: 'Equity Curve', requiresData: true },
+  { to: '/trades', icon: List, label: 'Trades', requiresData: true },
+  { to: '/pairs', icon: BarChart2, label: 'Par Paire', requiresData: true },
+  { to: '/convictions', icon: Compass, label: 'Convictions', requiresData: false },
+  { to: '/sessions', icon: Clock, label: 'Sessions & Temps', requiresData: true },
+  { to: '/commissions', icon: DollarSign, label: 'Commissions', requiresData: true },
+  { to: '/drawdown', icon: TrendingDown, label: 'Drawdown', requiresData: true },
 ]
 
 export function Sidebar() {
@@ -50,8 +52,10 @@ export function Sidebar() {
 
       {/* Nav */}
       <nav className="flex-1 py-3 space-y-0.5 overflow-y-auto overflow-x-hidden">
-        {NAV_ITEMS.map(({ to, icon: Icon, label }) => {
-          const disabled = to !== '/upload' && !isLoaded
+        {NAV_ITEMS.map((item) => {
+          const { to, icon: Icon, label, requiresData } = item as any
+          const needsData = requiresData === undefined ? true : requiresData
+          const disabled = needsData && !isLoaded
           const isActive = location.pathname === to
 
           if (disabled) {
