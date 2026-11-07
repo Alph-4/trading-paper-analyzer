@@ -1,4 +1,5 @@
 import Papa from 'papaparse';
+import { getHeaderValue } from '../lib/csvHeaders.js';
 
 /**
  * Parse CSV text from TradingView paper trading export.
@@ -17,11 +18,11 @@ export function parseCSV(csvText) {
 
   const rows = result.data
     .map((row) => {
-      const action = (row['Action'] || '').trim();
-      const pnl = parseFloat(row['Pertes et profits réalisés (valeur)'] || '0');
-      const balBefore = parseFloat(row['Balance avant'] || '0');
-      const balAfter = parseFloat(row['Balance après'] || '0');
-      const timeStr = row['Heure'] || row['Time'] || '';
+      const action = (getHeaderValue(row, ['Action']) || '').trim();
+      const pnl = parseFloat(getHeaderValue(row, ['Pertes et profits réalisés (valeur)', 'Realized PnL (value)']) || '0');
+      const balBefore = parseFloat(getHeaderValue(row, ['Balance avant', 'Balance before']) || '0');
+      const balAfter = parseFloat(getHeaderValue(row, ['Balance après', 'Balance after']) || '0');
+      const timeStr = getHeaderValue(row, ['Heure', 'Time']) || '';
       const time = new Date(timeStr.replace(' ', 'T') + 'Z'); // treat as UTC if no tz
 
       if (isNaN(time.getTime())) return null;
