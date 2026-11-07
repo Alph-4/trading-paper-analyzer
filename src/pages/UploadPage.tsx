@@ -1,22 +1,20 @@
 import { useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { format } from 'date-fns'
-import { Upload, FileText, CheckCircle2, AlertCircle, Loader2, TrendingUp, TrendingDown } from 'lucide-react'
+import { Upload, FileText, CheckCircle2, AlertCircle, Loader2, TrendingUp, TrendingDown, Download, Trash2 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { cn } from '@/lib/utils'
-import { parseCSV } from '@/lib/parser'
+import { parseRawRows, exportCSV } from '@/lib/parser'
 import { useTradeStore } from '@/store/useTradeStore'
 import type { RawRow, Trade } from '@/lib/types'
 
-type Status = 'idle' | 'selected' | 'loading' | 'success' | 'error'
+type Status = 'idle' | 'loading' | 'success' | 'error'
 
 interface FileInfo {
   name: string
-  text: string
-  rowCount: number
 }
 
 interface ParseResult {
@@ -27,6 +25,20 @@ interface ParseResult {
   netPnl: number
   periodStart: Date
   periodEnd: Date
+  addedRows?: number
+  duplicateRows?: number
+}
+
+function summarize(rawRows: RawRow[], trades: Trade[]): ParseResult {
+  return {
+    rawRows,
+    trades,
+    initialBalance: rawRows[rawRows.length - 1].balanceAvant,
+    finalBalance: rawRows[0].balanceApres,
+    netPnl: trades.reduce((sum, trade) => sum + trade.netPnl, 0),
+    periodStart: new Date(rawRows[rawRows.length - 1].heure.replace(' ', 'T')),
+    periodEnd: new Date(rawRows[0].heure.replace(' ', 'T')),
+  }
 }
 
 interface SuccessSummaryProps {
@@ -47,8 +59,15 @@ function SuccessSummary({ result, fileName }: SuccessSummaryProps) {
         <span className="text-sm font-medium text-foreground truncate">{fileName}</span>
       </div>
 
+      {result.addedRows !== undefined && (
+        <p className="text-xs text-muted-foreground" role="status">
+          {result.addedRows} {result.addedRows > 1 ? 'nouvelles opérations' : 'nouvelle opération'} · {result.duplicateRows} {result.duplicateRows === 1 ? 'doublon ignoré' : 'doublons ignorés'}.
+          {' '}L’historique ci-dessous regroupe tous vos imports.
+        </p>
+      )}
+
       <div className="flex flex-wrap gap-2">
-        <Badge variant="secondary">{trades.length} trades</Badge>
+        <Badge variant="secondary">{trades.length} trades clôturés</Badge>
         <Badge variant="outline">{winRate.toFixed(1)}% win rate</Badge>
         <Badge variant="outline">
           {format(periodStart, 'dd/MM/yyyy')} → {format(periodEnd, 'dd/MM/yyyy')}
@@ -71,13 +90,13 @@ function SuccessSummary({ result, fileName }: SuccessSummaryProps) {
           </p>
         </div>
         <div>
-          <p className="text-xs text-muted-foreground mb-0.5">PnL net</p>
+          <p className="text-xs text-muted-foreground mb-0.5">PnL net des trades</p>
           <p className={cn(
             'text-sm font-mono font-semibold flex items-center justify-center gap-0.5',
             pnlPositive ? 'text-emerald-500' : 'text-red-500'
           )}>
             {pnlPositive ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
-            {pnlPositive ? '+' : ''}${Math.abs(netPnl).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {pnlPositive ? '+' : '-'}${Math.abs(netPnl).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </p>
         </div>
       </div>
@@ -87,8 +106,9 @@ function SuccessSummary({ result, fileName }: SuccessSummaryProps) {
 
 export default function UploadPage() {
   const navigate = useNavigate()
-  const { setData } = useTradeStore()
+  const { rawRows, trades, isLoaded, storageError, importRows, reset } = useTradeStore()
   const inputRef = useRef<HTMLInputElement>(null)
+  const busyRef = useRef(false)
 
   const [status, setStatus] = useState<Status>('idle')
   const [isDragging, setIsDragging] = useState(false)
@@ -96,63 +116,30 @@ export default function UploadPage() {
   const [parseResult, setParseResult] = useState<ParseResult | null>(null)
   const [errorMsg, setErrorMsg] = useState<string>('')
 
-  const processFile = useCallback((file: File) => {
-    if (!file.name.endsWith('.csv')) {
+  const processFile = useCallback(async (file: File) => {
+    if (busyRef.current) return
+    if (!file.name.toLowerCase().endsWith('.csv')) {
       setStatus('error')
       setErrorMsg('Le fichier doit être au format .csv')
       return
     }
 
-    const reader = new FileReader()
-    reader.onload = (e) => {
-      const text = e.target?.result as string
-      if (!text) {
-        setStatus('error')
-        setErrorMsg('Impossible de lire le fichier.')
-        return
-      }
-
-      setFileInfo({ name: file.name, text, rowCount: 0 })
-      setStatus('loading')
-
-      setTimeout(() => {
-        try {
-          const { rawRows, trades } = parseCSV(text)
-
-          if (rawRows.length === 0) {
-            setStatus('error')
-            setErrorMsg("Aucune ligne valide trouvée. Vérifiez qu'il s'agit bien d'un export TradingView.")
-            return
-          }
-
-          // rawRows are newest-first (CSV order) — oldest row is last
-          const initialBalance = rawRows[rawRows.length - 1].balanceAvant
-          const finalBalance = rawRows[0].balanceApres
-
-          const sortedByTime = [...trades].sort((a, b) => a.openTime.getTime() - b.openTime.getTime())
-          const periodStart = sortedByTime[0]?.openTime ?? new Date()
-          const periodEnd = sortedByTime[sortedByTime.length - 1]?.closeTime ?? new Date()
-
-          const netPnl = trades.reduce((s, t) => s + t.netPnl, 0)
-
-          const result: ParseResult = { rawRows, trades, initialBalance, finalBalance, netPnl, periodStart, periodEnd }
-
-          setData(rawRows, trades)
-          setParseResult(result)
-          setFileInfo((prev) => prev ? { ...prev, rowCount: rawRows.length } : null)
-          setStatus('success')
-        } catch (err) {
-          setStatus('error')
-          setErrorMsg(err instanceof Error ? err.message : 'Erreur lors du parsing.')
-        }
-      }, 50)
-    }
-    reader.onerror = () => {
+    busyRef.current = true
+    setStatus('loading')
+    setErrorMsg('')
+    try {
+      const text = await file.text()
+      const imported = importRows(parseRawRows(text))
+      setParseResult({ ...summarize(imported.rawRows, imported.trades), addedRows: imported.addedRows, duplicateRows: imported.duplicateRows })
+      setFileInfo({ name: file.name })
+      setStatus('success')
+    } catch (err) {
       setStatus('error')
-      setErrorMsg('Erreur de lecture du fichier.')
+      setErrorMsg(err instanceof Error ? err.message : 'Impossible de lire ou de sauvegarder le fichier.')
+    } finally {
+      busyRef.current = false
     }
-    reader.readAsText(file, 'utf-8')
-  }, [setData])
+  }, [importRows])
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -179,14 +166,49 @@ export default function UploadPage() {
     setIsDragging(false)
   }
 
+  const handleExport = () => {
+    const url = URL.createObjectURL(new Blob([exportCSV(rawRows)], { type: 'text/csv;charset=utf-8;' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `trading-historique-${format(new Date(), 'yyyy-MM-dd')}.csv`
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+
+  const handleClearHistory = () => {
+    if (!window.confirm('Effacer tout l’historique enregistré sur cet appareil ? Exportez une sauvegarde CSV avant de continuer si vous souhaitez le conserver.')) return
+    try {
+      reset()
+      handleReset()
+    } catch {
+      setStatus('error')
+      setErrorMsg('Impossible d’effacer l’historique local. Vérifiez le stockage du navigateur.')
+    }
+  }
+
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-4">
+    <div className="min-h-[calc(100dvh-6rem)] bg-background flex items-center justify-center p-2 sm:p-4">
       <div className="w-full max-w-lg space-y-6">
         {/* Title */}
         <div className="text-center space-y-1">
           <h1 className="text-2xl font-bold tracking-tight">Trading Analyzer</h1>
           <p className="text-sm text-muted-foreground">Importez votre export CSV TradingView Paper Trading</p>
         </div>
+
+        {storageError && (
+          <div role="alert" className="text-sm text-red-400 space-y-2">
+            <p>{storageError}</p>
+            <Button variant="outline" size="sm" onClick={handleClearHistory}>Réinitialiser la sauvegarde locale</Button>
+          </div>
+        )}
+
+        {isLoaded && status !== 'success' && (
+          <Card>
+            <CardContent className="p-6">
+              <SuccessSummary result={summarize(rawRows, trades)} fileName="Historique enregistré sur cet appareil" />
+            </CardContent>
+          </Card>
+        )}
 
         {/* Drop zone card */}
         <Card className="border-border">
@@ -198,7 +220,14 @@ export default function UploadPage() {
                 role="button"
                 tabIndex={0}
                 onClick={() => status !== 'loading' && inputRef.current?.click()}
-                onKeyDown={(e) => e.key === 'Enter' && status !== 'loading' && inputRef.current?.click()}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    if (status !== 'loading') inputRef.current?.click()
+                  }
+                }}
+                aria-label="Importer un fichier CSV"
+                aria-disabled={status === 'loading'}
                 onDragEnter={handleDragEnter}
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
@@ -221,10 +250,10 @@ export default function UploadPage() {
                   <>
                     <AlertCircle className="h-8 w-8 text-red-500" />
                     <div>
-                      <p className="text-sm font-medium text-red-500">Erreur de parsing</p>
+                      <p className="text-sm font-medium text-red-500">Import impossible</p>
                       <p className="text-xs text-muted-foreground mt-1">{errorMsg}</p>
                     </div>
-                    <p className="text-xs text-muted-foreground">Cliquez pour réessayer</p>
+                    <p className="text-xs text-muted-foreground" role="alert">Cliquez pour réessayer. L’historique précédent est conservé.</p>
                   </>
                 ) : (
                   <>
@@ -249,6 +278,8 @@ export default function UploadPage() {
               ref={inputRef}
               type="file"
               accept=".csv"
+              aria-label="Fichier CSV TradingView"
+              disabled={status === 'loading'}
               onChange={handleFileInput}
               className="hidden"
             />
@@ -256,16 +287,37 @@ export default function UploadPage() {
         </Card>
 
         {/* Action buttons */}
-        {status === 'success' && (
+        {isLoaded && (
           <div className="flex gap-3">
-            <Button variant="outline" onClick={handleReset} className="flex-1">
-              Nouveau fichier
-            </Button>
+            {status === 'success' && (
+              <Button variant="outline" onClick={handleReset} className="flex-1">
+                Ajouter un autre CSV
+              </Button>
+            )}
             <Button onClick={() => navigate('/dashboard')} className="flex-1">
               Voir le dashboard
             </Button>
           </div>
         )}
+
+        <div className="space-y-3 text-center">
+          <p className="text-xs text-muted-foreground">
+            Vos trades restent enregistrés dans ce navigateur après fermeture. Chaque nouvel import complète l’historique ; les doublons sont ignorés.
+          </p>
+          {isLoaded && (
+            <div className="flex flex-wrap justify-center gap-2">
+              <Button variant="outline" size="sm" onClick={handleExport} disabled={status === 'loading'}>
+                <Download /> Sauvegarder en CSV
+              </Button>
+              <Button variant="ghost" size="sm" onClick={handleClearHistory} disabled={status === 'loading'} className="text-muted-foreground">
+                <Trash2 /> Effacer l’historique
+              </Button>
+            </div>
+          )}
+          <p className="text-xs text-muted-foreground">
+            La sauvegarde est propre à cet appareil. Exportez-la pour changer de navigateur ou avant d’effacer ses données.
+          </p>
+        </div>
 
         {/* Instructions */}
         {(status === 'idle' || status === 'error') && (

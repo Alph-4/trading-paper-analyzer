@@ -1,4 +1,4 @@
-// Raw row as parsed directly from the CSV (French headers)
+// Normalized source row from current/legacy French or English CSV headers.
 export interface RawRow {
   heure: string
   balanceAvant: number

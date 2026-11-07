@@ -14,7 +14,8 @@ const ROUTE_TITLES: Record<string, string> = {
 
 export function Header() {
   const location = useLocation()
-  const { trades, isLoaded } = useTradeStore()
+  const trades = useTradeStore((state) => state.trades)
+  const isLoaded = useTradeStore((state) => state.isLoaded)
   const title = ROUTE_TITLES[location.pathname] ?? 'Trading Paper Analyzer'
 
   return (
@@ -25,7 +26,7 @@ export function Header() {
           variant="outline"
           className="text-emerald-400 border-emerald-800 bg-emerald-950/40 text-xs font-mono"
         >
-          {trades.length} trades chargés
+          {trades.length} trades enregistrés
         </Badge>
       )}
     </header>

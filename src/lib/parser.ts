@@ -1,6 +1,6 @@
 import Papa from 'papaparse'
-import { getHeaderValue } from './csvHeaders'
 import type { RawRow, ParsedEvent, EventType, Trade, TradeClose } from './types'
+import { sortRawRows } from './history.ts'
 
 // ── Regex patterns ─────────────────────────────────────────────────────────
 
@@ -40,26 +40,85 @@ function avgPrice(action: string): number | undefined {
 // ── parseRawRows ───────────────────────────────────────────────────────────
 
 /**
- * Parse CSV text into raw row objects preserving the original CSV order
- * (newest-first as exported by TradingView).
+ * Accept current and legacy TradingView headers and normalize newest-first.
  */
 export function parseRawRows(csvText: string): RawRow[] {
   const result = Papa.parse<Record<string, string>>(csvText.trim(), {
     header: true,
-    skipEmptyLines: true,
-    transformHeader: (h) => h.trim(),
+    skipEmptyLines: 'greedy',
+    transformHeader: normalizeHeader,
   })
 
-  return result.data
-    .map((row) => ({
-      heure: getHeaderValue(row, ['Heure', 'Time']) || '',
-      balanceAvant: parseFloat(getHeaderValue(row, ['Balance avant', 'Balance before']) || '0'),
-      balanceApres: parseFloat(getHeaderValue(row, ['Balance après', 'Balance after']) || '0'),
-      pnl: parseFloat(getHeaderValue(row, ['Pertes et profits réalisés (valeur)', 'Realized PnL (value)']) || '0'),
-      devise: getHeaderValue(row, ['Pertes et profits réalisés (devise)', 'Realized PnL (currency)']) || 'USD',
-      action: (getHeaderValue(row, ['Action']) || '').trim(),
-    }))
-    .filter((r) => r.heure !== '' && !isNaN(r.pnl))
+  const aliases = {
+    heure: ['Heure', 'Time'],
+    balanceAvant: ['Solde avant', 'Balance avant', 'Balance before'],
+    balanceApres: ['Solde après', 'Balance après', 'Balance after'],
+    pnl: ['P&L réalisé (valeur)', 'Pertes et profits réalisés (valeur)', 'Realized P&L (value)', 'Realized PnL (value)'],
+    devise: ['P&L réalisé (devise)', 'Pertes et profits réalisés (devise)', 'Realized P&L (currency)', 'Realized PnL (currency)'],
+    action: ['Action'],
+  }
+  const fields = result.meta.fields ?? []
+  const columns = Object.fromEntries(Object.entries(aliases).map(([key, names]) => {
+    const header = names.map(normalizeHeader).find((name) => fields.includes(name))
+    if (!header) throw new Error(`Colonne manquante : ${names[0]}. Importez l’historique des soldes TradingView.`)
+    return [key, header]
+  })) as Record<keyof RawRow, string>
+
+  if (result.errors.length > 0) {
+    throw new Error('CSV mal formé : vérifiez les colonnes et les guillemets du fichier.')
+  }
+  if (result.data.length === 0) throw new Error('Le fichier ne contient aucune opération.')
+
+  const rows = result.data.map((row, index): RawRow => {
+    const heure = row[columns.heure]?.trim().replace('T', ' ') ?? ''
+    const action = row[columns.action]?.trim().replace(/\s+/g, ' ') ?? ''
+    const devise = row[columns.devise]?.trim().toUpperCase() ?? ''
+    if (!isValidTimestamp(heure) || !action || !devise) {
+      throw new Error(`Ligne ${index + 2} : date, action ou devise invalide.`)
+    }
+    return {
+      heure,
+      balanceAvant: parseNumber(row[columns.balanceAvant], index + 2),
+      balanceApres: parseNumber(row[columns.balanceApres], index + 2),
+      pnl: parseNumber(row[columns.pnl], index + 2),
+      devise,
+      action,
+    }
+  })
+  if (new Set(rows.map((row) => row.devise)).size > 1) {
+    throw new Error('Cet historique contient plusieurs devises de compte et ne peut pas être fusionné.')
+  }
+  return sortRawRows(rows)
+}
+
+function normalizeHeader(header: string): string {
+  return header.replace(/^\uFEFF/, '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .trim().replace(/\s+/g, ' ').toLowerCase()
+}
+
+function parseNumber(value: string | undefined, line: number): number {
+  const normalized = (value ?? '').trim().replace(/[\s\u00a0\u202f]/g, '').replace(',', '.')
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(normalized) || !Number.isFinite(Number(normalized))) {
+    throw new Error(`Ligne ${line} : montant invalide ou manquant. Aucune donnée n’a été importée.`)
+  }
+  return Number(normalized)
+}
+
+export function isValidTimestamp(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(value)) return false
+  const date = new Date(value.replace(' ', 'T'))
+  if (!Number.isFinite(date.getTime())) return false
+  const [year, month, day, hour, minute, second] = value.split(/[- :]/).map(Number)
+  return date.getFullYear() === year && date.getMonth() + 1 === month && date.getDate() === day
+    && date.getHours() === hour && date.getMinutes() === minute && date.getSeconds() === second
+}
+
+/** CSV backup uses the same format as the import, including full numeric precision. */
+export function exportCSV(rows: RawRow[]): string {
+  return '\uFEFF' + Papa.unparse({
+    fields: ['Heure', 'Solde avant', 'Solde après', 'P&L réalisé (valeur)', 'P&L réalisé (devise)', 'Action'],
+    data: sortRawRows(rows).map((row) => [row.heure, row.balanceAvant, row.balanceApres, row.pnl, row.devise, row.action]),
+  })
 }
 
 // ── buildEvents ────────────────────────────────────────────────────────────
@@ -69,8 +128,8 @@ export function parseRawRows(csvText: string): RawRow[] {
  * Input rows are newest-first; output is sorted oldest-first.
  */
 export function buildEvents(rawRows: RawRow[]): ParsedEvent[] {
-  // CSV is newest-first → reverse for chronological order
-  return [...rawRows]
+  // Restore chronological ledger order, including rows in the same second.
+  return sortRawRows(rawRows)
     .reverse()
     .map((row): ParsedEvent | null => {
       const { action } = row
@@ -134,12 +193,12 @@ function weightedAvgExit(closes: TradeClose[]): number {
  */
 export function buildTrades(events: ParsedEvent[]): Trade[] {
   // Index exit commissions by "symbol_timestampMs" for O(1) lookup
-  const exitCommByKey = new Map<string, Array<{ pnl: number; idx: number }>>()
+  const exitCommByKey = new Map<string, Array<{ pnl: number; idx: number; action: string }>>()
   events.forEach((ev, idx) => {
     if (ev.type !== 'exitCommission') return
     const key = `${ev.symbol}_${ev.time.getTime()}`
     const arr = exitCommByKey.get(key) ?? []
-    arr.push({ pnl: ev.pnl, idx })
+    arr.push({ pnl: ev.pnl, idx, action: ev.action.replace(/^Commission for:\s*/i, '') })
     exitCommByKey.set(key, arr)
   })
 
@@ -169,7 +228,7 @@ export function buildTrades(events: ParsedEvent[]): Trade[] {
     // ── Resolve exit commission for this close ───────────────────────────
     const commKey = `${event.symbol}_${event.time.getTime()}`
     const candidates = exitCommByKey.get(commKey) ?? []
-    const commMatch = candidates.find((c) => !usedCommIdx.has(c.idx))
+    const commMatch = candidates.find((c) => !usedCommIdx.has(c.idx) && c.action === event.action)
     const exitCommissionTotal = commMatch?.pnl ?? 0
     if (commMatch) usedCommIdx.add(commMatch.idx)
 
