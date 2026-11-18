@@ -2,6 +2,8 @@
 
 Analyse locale des exports CSV de l’historique des soldes TradingView Paper Trading.
 
+Un [Trading desk](docs/TRADING-DESK.md) sur `/desk` ajoute le contexte FX / indices / or, le positionnement COT, les taux américains, les saisonnalités, les graphiques et l’agenda TradingView ainsi qu’un plan de session local. Les références quotidiennes et hebdomadaires sont datées ; le sentiment retail est saisi manuellement. L’API Node `/api/market` est fournie avec Vite et via un adaptateur Vercel.
+
 - Import des en-têtes français actuels (`Solde`, `P&L réalisé`), anciens (`Balance`, `Pertes et profits réalisés`) et anglais.
 - Chaque import complète l’historique. Les opérations identiques sont ignorées en comparant date, soldes, résultat, devise et action ; les exécutions distinctes à la même seconde sont conservées.
 - Les lignes sources sont sauvegardées dans le stockage local du navigateur (`trading-paper-history`, format versionné). Les trades et leurs dates sont reconstruits au rechargement, y compris lorsque leur ouverture et leur clôture viennent de fichiers différents.

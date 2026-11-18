@@ -13,6 +13,7 @@ import SessionsPage from '@/pages/SessionsPage'
 import CommissionsPage from '@/pages/CommissionsPage'
 import DrawdownPage from '@/pages/DrawdownPage'
 import ConvictionsPage from '@/pages/ConvictionsPage'
+import TradingDeskPage from '@/pages/TradingDeskPage'
 
 function RequireData({ children }: { children: React.ReactNode }) {
   const isLoaded = useTradeStore((s) => s.isLoaded)
@@ -29,8 +30,9 @@ function Layout() {
       <Sidebar />
       <div className="flex flex-col flex-1 min-w-0">
         <Header />
-        <main className="flex-1 overflow-y-auto p-5">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-5">
           <Routes>
+            <Route path="/desk" element={<TradingDeskPage />} />
             <Route path="/upload" element={<UploadPage />} />
             <Route
               path="/dashboard"
@@ -89,7 +91,7 @@ function Layout() {
                 </RequireData>
               }
             />
-            <Route path="*" element={<Navigate to="/upload" replace />} />
+            <Route path="*" element={<Navigate to="/desk" replace />} />
           </Routes>
         </main>
       </div>

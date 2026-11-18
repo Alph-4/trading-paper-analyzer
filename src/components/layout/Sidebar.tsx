@@ -12,11 +12,13 @@ import {
   Compass,
   ChevronLeft,
   ChevronRight,
+  Activity,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useTradeStore } from '@/store/useTradeStore'
 
 const NAV_ITEMS = [
+  { to: '/desk', icon: Activity, label: 'Trading desk', requiresData: false },
   { to: '/upload', icon: Upload, label: 'Import CSV', requiresData: false },
   { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', requiresData: true },
   { to: '/equity', icon: TrendingUp, label: 'Equity Curve', requiresData: true },
@@ -37,14 +39,14 @@ export function Sidebar() {
     <aside
       className={cn(
         'flex flex-col h-screen bg-zinc-950 border-r border-zinc-800 transition-[width] duration-200 shrink-0',
-        collapsed ? 'w-14' : 'w-52'
+        collapsed ? 'w-14' : 'w-14 md:w-52'
       )}
     >
       {/* Logo / brand */}
       <div className="flex items-center h-14 px-3 border-b border-zinc-800 overflow-hidden">
         <TrendingUp className="text-emerald-400 shrink-0" size={20} />
         {!collapsed && (
-          <span className="ml-2 text-sm font-semibold text-zinc-100 truncate">
+          <span className="ml-2 hidden text-sm font-semibold text-zinc-100 truncate md:inline">
             Paper Trader
           </span>
         )}
@@ -53,7 +55,7 @@ export function Sidebar() {
       {/* Nav */}
       <nav className="flex-1 py-3 space-y-0.5 overflow-y-auto overflow-x-hidden">
         {NAV_ITEMS.map((item) => {
-          const { to, icon: Icon, label, requiresData } = item as any
+          const { to, icon: Icon, label, requiresData } = item
           const needsData = requiresData === undefined ? true : requiresData
           const disabled = needsData && !isLoaded
           const isActive = location.pathname === to
@@ -69,7 +71,7 @@ export function Sidebar() {
                 )}
               >
                 <Icon size={18} className="shrink-0" />
-                {!collapsed && <span className="text-sm truncate">{label}</span>}
+                {!collapsed && <span className="hidden text-sm truncate md:inline">{label}</span>}
               </div>
             )
           }
@@ -78,7 +80,8 @@ export function Sidebar() {
             <NavLink
               key={to}
               to={to}
-              title={collapsed ? label : undefined}
+              aria-label={label}
+              title={label}
               className={cn(
                 'flex items-center gap-3 px-3 py-2 mx-1 rounded-md text-sm transition-colors',
                 collapsed && 'justify-center',
@@ -88,7 +91,7 @@ export function Sidebar() {
               )}
             >
               <Icon size={18} className="shrink-0" />
-              {!collapsed && <span className="truncate">{label}</span>}
+              {!collapsed && <span className="hidden truncate md:inline">{label}</span>}
             </NavLink>
           )
         })}
